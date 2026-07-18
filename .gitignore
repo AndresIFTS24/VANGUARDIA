@@ -1,0 +1,15 @@
+# Ignorar configuraciones personales y contraseñas
+.env
+*.env
+
+# Ignorar librerías pesadas
+node_modules/
+dist/
+.angular/
+
+# Ignorar archivos temporales de Android
+.gradle/
+local.properties
+.idea/
+*.apk
+build/
