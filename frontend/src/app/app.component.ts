@@ -2,6 +2,7 @@ import { Component, AfterViewInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms'; 
 import { HttpClient } from '@angular/common/http'; 
+import { environment } from '../environments/environment';  // ← AGREGADO
 import * as L from 'leaflet';
 
 @Component({
@@ -29,7 +30,6 @@ import * as L from 'leaflet';
         <div *ngIf="mensajeError" class="alert-error"><span>⚠️</span> <p>{{ mensajeError }}</p></div>
       </div>
     </div>
-
     <!-- VISTA 2: DASHBOARD AUTOMÁTICO -->
     <div class="dashboard-container" *ngIf="vistaActual === 'admin'">
       <header class="dash-header">
@@ -42,7 +42,6 @@ import * as L from 'leaflet';
         </div>
         <button class="btn-logout" (click)="cerrarSesion()">Cerrar Sesión 🚪</button>
       </header>
-
       <!-- Tarjetas Superiores -->
       <section class="stats-row">
         <div class="stat-card">
@@ -60,7 +59,6 @@ import * as L from 'leaflet';
           </div>
         </div>
       </section>
-
       <!-- Contenido en cuadricula -->
       <div class="main-grid">
         <div class="left-column">
@@ -69,7 +67,6 @@ import * as L from 'leaflet';
             <h3>📍 Mapa de Establecimientos Activos</h3>
             <div id="map"></div>
           </div>
-
           <!-- Formulario Adaptado a Texto -->
           <div class="card form-card">
             <h3>{{ editandoId ? '📝 Editar Datos de Cliente' : '➕ Registrar Nuevo Cliente' }}</h3>
@@ -87,7 +84,6 @@ import * as L from 'leaflet';
             </div>
           </div>
         </div>
-
         <!-- Directorio de Clientes -->
         <div class="right-column">
           <div class="card table-card">
@@ -187,15 +183,14 @@ export class AppComponent {
   mensajeError = '';
   email = '';
   password = '';
-
   clientes: any[] = [];
   mapa!: L.Map;
   capaMarcadores: L.LayerGroup = L.layerGroup();
-
   editandoId: number | null = null;
   crudForm = { nombre: '', email: '', direccion: '', ciudad: '' };
-
-  private apiUrl = 'http://192.168.0.7:3000/api';
+  
+  // ✅ AHORA USA LA VARIABLE DE ENVIRONMENT
+  private apiUrl = environment.apiUrl;
 
   constructor(private http: HttpClient) {}
 
@@ -239,10 +234,8 @@ export class AppComponent {
       iconSize: [30, 30],
       iconAnchor: [15, 30]
     });
-
     this.clientes.forEach(c => {
       if (c.latitud && c.longitud) {
-        // CORREGIDO: Eliminados corchetes incorrectos en L.marker
         const marcador = L.marker([Number(c.latitud), Number(c.longitud)], { icon: edificioIcon })
           .bindPopup(`<b>🏢 ${c.nombre}</b><br>${c.direccion}<br><i>Fumigación Pendiente</i>`);
         this.capaMarcadores.addLayer(marcador);
@@ -255,7 +248,6 @@ export class AppComponent {
       alert('Nombre, Dirección y Ciudad son obligatorios');
       return;
     }
-
     if (this.editandoId) {
       this.http.put(`${this.apiUrl}/clientes/${this.editandoId}`, this.crudForm).subscribe(() => {
         this.refrescarDatos();
