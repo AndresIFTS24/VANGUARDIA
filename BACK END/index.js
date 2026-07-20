@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const app = express();
@@ -9,25 +9,27 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-const pool = new Pool({
-  connectionString: process.env.POSTGRESQL_ADDON_URI || process.env.DATABASE_URL,
-  max: 2,
-  ssl: { rejectUnauthorized: false }
+const pool = mysql.createPool({
+  host: process.env.MYSQL_ADDON_HOST || process.env.DB_HOST,
+  port: process.env.MYSQL_ADDON_PORT || 3306,
+  user: process.env.MYSQL_ADDON_USER || process.env.DB_USER,
+  password: process.env.MYSQL_ADDON_PASSWORD || process.env.DB_PASSWORD,
+  database: process.env.MYSQL_ADDON_DB || process.env.DB_NAME,
+  connectionLimit: 2
 });
 
 // 🔍 FUNCIÓN TRUCO: Convierte Dirección + Ciudad en Coordenadas reales (Geocodificación)
 async function obtenerCoordenadas(direccion, ciudad) {
   try {
     if (!direccion || !ciudad) return { lat: null, lon: null };
-    
+
     const consulta = encodeURIComponent(`${direccion}, ${ciudad}`);
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${consulta}&limit=1`;
-    
-    // OpenStreetMap requiere obligatoriamente un identificador User-Agent
+
     const respuesta = await fetch(url, {
       headers: { 'User-Agent': 'VanguardiaFumigacionesApp' }
     });
-    
+
     const datos = await respuesta.json();
     if (datos && datos.length > 0) {
       return { lat: parseFloat(datos[0].lat), lon: parseFloat(datos[0].lon) };
@@ -35,18 +37,20 @@ async function obtenerCoordenadas(direccion, ciudad) {
   } catch (error) {
     console.error("⚠️ Error consultando el mapa de OpenStreetMap:", error);
   }
-  return { lat: null, lon: null }; // Retorna nulo si no encuentra la calle
+  return { lat: null, lon: null };
 }
 
-// 🔑 LOGIN (Sincronizado con la nueva tabla)
+// 🔑 LOGIN
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const sql = 'SELECT id, nombre, email, rol FROM usuarios WHERE email = $1 AND password = $2';
-    const resultado = await pool.query(sql, [email, password]);
-    
-    if (resultado.rows.length > 0) {
-      res.json({ ok: true, usuario: resultado.rows[0] });
+    const [rows] = await pool.query(
+      'SELECT id, nombre, email, rol FROM usuarios WHERE email = ? AND password = ?',
+      [email, password]
+    );
+
+    if (rows.length > 0) {
+      res.json({ ok: true, usuario: rows[0] });
     } else {
       res.status(401).json({ ok: false, mensaje: "Credenciales incorrectas" });
     }
@@ -59,8 +63,8 @@ app.post('/api/login', async (req, res) => {
 // 📋 CRUD CLIENTES - LEER TODOS
 app.get('/api/clientes', async (req, res) => {
   try {
-    const resultado = await pool.query('SELECT id, nombre, email, direccion, ciudad, latitud, longitud FROM clientes ORDER BY id ASC');
-    res.json(resultado.rows);
+    const [rows] = await pool.query('SELECT id, nombre, email, direccion, ciudad, latitud, longitud FROM clientes ORDER BY id ASC');
+    res.json(rows);
   } catch (error) {
     console.error("❌ Error en GET /api/clientes:", error);
     res.status(500).json({ error: "Error al obtener los clientes" });
@@ -70,14 +74,15 @@ app.get('/api/clientes', async (req, res) => {
 // 📋 CRUD CLIENTES - CREAR NUEVO (Con Geolocalizador automático)
 app.post('/api/clientes', async (req, res) => {
   const { nombre, email, direccion, ciudad } = req.body;
-  
-  // 🧭 Buscamos el GPS de la calle automáticamente en internet
+
   const coords = await obtenerCoordenadas(direccion, ciudad);
 
   try {
-    const sql = 'INSERT INTO clientes (nombre, email, direccion, ciudad, latitud, longitud) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id';
-    const resultado = await pool.query(sql, [nombre, email, direccion, ciudad, coords.lat, coords.lon]);
-    res.json({ ok: true, id: resultado.rows[0].id, mensaje: "Cliente geolocalizado y registrado" });
+    const [resultado] = await pool.query(
+      'INSERT INTO clientes (nombre, email, direccion, ciudad, latitud, longitud) VALUES (?, ?, ?, ?, ?, ?)',
+      [nombre, email, direccion, ciudad, coords.lat, coords.lon]
+    );
+    res.json({ ok: true, id: resultado.insertId, mensaje: "Cliente geolocalizado y registrado" });
   } catch (error) {
     console.error("❌ Error en POST /api/clientes:", error);
     res.status(500).json({ error: "Error al registrar. ¿El correo ya existe?" });
@@ -88,13 +93,14 @@ app.post('/api/clientes', async (req, res) => {
 app.put('/api/clientes/:id', async (req, res) => {
   const { id } = req.params;
   const { nombre, email, direccion, ciudad } = req.body;
-  
-  // Si cambia la dirección, recalculamos el GPS
+
   const coords = await obtenerCoordenadas(direccion, ciudad);
 
   try {
-    const sql = 'UPDATE clientes SET nombre=$1, email=$2, direccion=$3, ciudad=$4, latitud=$5, longitud=$6 WHERE id=$7';
-    await pool.query(sql, [nombre, email, direccion, ciudad, coords.lat, coords.lon, id]);
+    await pool.query(
+      'UPDATE clientes SET nombre=?, email=?, direccion=?, ciudad=?, latitud=?, longitud=? WHERE id=?',
+      [nombre, email, direccion, ciudad, coords.lat, coords.lon, id]
+    );
     res.json({ ok: true, mensaje: "Cliente actualizado con éxito" });
   } catch (error) {
     console.error("❌ Error en PUT /api/clientes:", error);
@@ -106,7 +112,7 @@ app.put('/api/clientes/:id', async (req, res) => {
 app.delete('/api/clientes/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query('DELETE FROM clientes WHERE id = $1', [id]);
+    await pool.query('DELETE FROM clientes WHERE id = ?', [id]);
     res.json({ ok: true, mensaje: "Cliente eliminado" });
   } catch (error) {
     console.error("❌ Error en DELETE /api/clientes:", error);
